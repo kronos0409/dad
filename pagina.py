@@ -19,7 +19,7 @@ def procesar_hojas(archivo,tramo):
         hojas_procesadas = [dividir_en_tramos(df, tramo) for df in xls.values()]
         df_consolidado = hojas_procesadas[0]
         progreso = st.progress(0)
-        patron = len(hojas_procesadas[1:])
+        patron = len(hojas_procesadas)
         patron = int(np.round(100/(patron)))
         n = 0
         for hoja in hojas_procesadas[1:]:
