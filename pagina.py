@@ -22,7 +22,7 @@ def procesar_hojas(archivo,tramo):
         patron = len(hojas_procesadas)
         patron = int(np.round(100/(patron)))
         n = 0
-        st.write(hojas_procesadas)
+        st.write(hojas_procesadas[:1])
         for hoja in hojas_procesadas[:1]:
             n+=1
             df_consolidado = pd.merge(df_consolidado, hoja, on=['HOLEID', 'From', 'To'], how='outer')
