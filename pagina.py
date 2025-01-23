@@ -87,22 +87,32 @@ def obtener_holeid_principal(matching_rows, current_from, current_to):
     if len(matching_rows) == 1:
         return top_rows.iloc[0], ""
     return top_rows.iloc[0], "2 o mas"
-def Menu():
-    
-    st.subheader("El codigo esta diseñado pensando en que tengas una hoja extra sin informacion que actua como una clase de leyenda, si no tienes esa hoja, agrega una vacia porfavor y asegurate que esta este al ultimo")
-    st.write("Tambien si tienes la columna 'length' o una columna que actue como sustituto, porfavor eliminala")
-    st.write("Cuando tengas la optimizacion hecha, subelo a la pagina")
-    funcion=st.radio("Selecciona lo que desees hacer",index=None ,options = ["1-Filtrado", "2-Optimizacion", "3-Tramos (no ejecutar sin antes optimizar)"])
-    if funcion == '1-Filtrado' :
-        funcion = 1
-    elif funcion == "2-Optimizacion":
-        funcion = 2
-    elif funcion == "3-Tramos (no ejecutar sin antes optimizar)":
-        funcion=3
+def Menu(archivos):
+    if st.toggle("Asignacion?"):
+        st.subheader("las columnas deben ser 'HOLEID', 'From' y 'To'")
+        nombre=[]
+        for i in range(0,len(archivos)):
+            nombre.append(archivos[i].name)
+        BD = st.selectbox("Cual es la base de datos?",options=nombre)
+        lista = st.selectbox("Cual es la lista?",options=nombre)
+        funcion = 4
     else:
-        funcion = 0
+        st.subheader("El codigo esta diseñado pensando en que tengas una hoja extra sin informacion que actua como una clase de leyenda, si no tienes esa hoja, agrega una vacia porfavor y asegurate que esta este al ultimo")
+        st.write("Tambien si tienes la columna 'length' o una columna que actue como sustituto, porfavor eliminala")
+        st.write("Cuando tengas la optimizacion hecha, subelo a la pagina")
+        funcion=st.radio("Selecciona lo que desees hacer",index=None ,options = ["1-Filtrado", "2-Optimizacion", "3-Tramos (no ejecutar sin antes optimizar)"])
+        if funcion == '1-Filtrado' :
+            funcion = 1
+        elif funcion == "2-Optimizacion":
+            funcion = 2
+        elif funcion == "3-Tramos (no ejecutar sin antes optimizar)":
+            funcion=3
+        else:
+            funcion = 0
+        BD = 0
+        lista = 0
     aplicar = st.button("Aplicar función")
-    return aplicar,funcion
+    return aplicar,funcion, BD, lista
 def Conseguir_archivo():
     tramo = st.toggle("Tienes la optimizacion hecha?")
     return st.file_uploader("introduce tu archivo", accept_multiple_files=tramo),tramo
@@ -181,6 +191,117 @@ def Optimizacion(archivo):
             progreso.progress(progress)
     progreso.progress(100)
     return output 
+def Asignacion_final(BD, lista, archivos):
+    for archivo in archivos:
+        if archivo.name == BD:
+            df_BD_dict = pd.read_excel(archivo, sheet_name=None)  # Diccionario de hojas
+            
+        elif archivo.name == lista:
+            df_lista = pd.read_excel(archivo)
+
+    # Convertir las columnas de `df_lista` a los tipos requeridos
+    df_lista['HOLEID'] = df_lista['HOLEID'].astype(str).str.strip()
+    df_lista['From'] = df_lista['From'].astype(float)
+    df_lista['To'] = df_lista['To'].astype(float)
+
+    resultados = []
+
+    # Procesar cada hoja de `df_BD`
+    for hoja, df_BD in df_BD_dict.items():
+        if 'HOLEID' not in df_BD.columns:
+            continue  # Saltar hojas sin la columna 'HOLEID'
+
+        # Convertir las columnas de `df_BD` a los tipos requeridos
+        df_BD['HOLEID'] = df_BD['HOLEID'].astype(str).str.strip()
+        df_BD['From'] = df_BD['From'].astype(float)
+        df_BD['To'] = df_BD['To'].astype(float)
+
+        # Recorrer cada fila de `df_lista`
+        for _, fila_lista in df_lista.iterrows():
+            # Filtrar coincidencias en `df_BD` por HOLEID y rango From-To
+            filtro = (
+                (df_BD['HOLEID'] == fila_lista['HOLEID']) &
+                (df_BD['From'] < fila_lista['To']) &
+                (df_BD['To'] > fila_lista['From'])
+            )
+            coincidencias = df_BD[filtro]
+
+            nueva_fila = fila_lista.to_dict()
+
+            if not coincidencias.empty:
+                # Calcular el porcentaje de intersección
+                coincidencias = coincidencias.copy()
+                coincidencias['Intersección'] = (
+                    coincidencias[['To', 'From']].min(axis=1) - 
+                    coincidencias[['To', 'From']].max(axis=1)
+                ).clip(lower=0)
+                coincidencias['Porcentaje'] = (
+                    coincidencias['Intersección'] / (fila_lista['To'] - fila_lista['From'])
+                ) * 100
+
+                # Determinar las filas con el porcentaje máximo
+                max_porcentaje = coincidencias['Porcentaje'].max()
+                filas_maximas = coincidencias[coincidencias['Porcentaje'] == max_porcentaje]
+
+                if len(filas_maximas) > 1:
+                    # Combinar información en caso de múltiples coincidencias
+                    for columna in df_BD.columns:
+                        if columna not in df_lista.columns:
+                            nueva_fila[columna] = '/'.join(map(str, filas_maximas[columna].unique()))
+                    nueva_fila['Mensaje'] = 'ERROR: Más de una coincidencia con mismo porcentaje'
+                else:
+                    # Asignar información de la única coincidencia
+                    for columna in df_BD.columns:
+                        if columna not in df_lista.columns:
+                            nueva_fila[columna] = filas_maximas.iloc[0][columna]
+                    nueva_fila['Mensaje'] = ''
+            else:
+                # Sin coincidencias, rellenar con datos vacíos
+                for columna in df_BD.columns:
+                    if columna not in df_lista.columns:
+                        nueva_fila[columna] = ''
+                nueva_fila['Mensaje'] = 'Sin coincidencias'
+
+            # Agregar la nueva fila al resultado
+            resultados.append(nueva_fila)
+
+    df_resultado = pd.DataFrame(resultados).drop_duplicates()
+    return df_resultado
+
+
+def Asignacion_inicial(BD, lista, archivos):
+    for archivo in archivos:
+        if archivo.name == BD:
+            df_BD_dict = pd.read_excel(archivo, sheet_name=None)
+        elif archivo.name == lista:
+            df_lista = pd.read_excel(archivo)
+
+    output = io.BytesIO()
+    hojas_procesadas = [Asignacion_final(BD, lista, archivos) for _ in df_BD_dict.values()]
+    df_consolidado = hojas_procesadas[0]
+
+    progreso = st.progress(0)
+    patron = len(hojas_procesadas[1:])
+    if patron == 0:
+        patron=  1
+    patron = int(np.round(100 / patron))
+    n = 0
+
+    if len(hojas_procesadas) > 1:
+        for hoja in hojas_procesadas[1:]:
+            n += 1
+            df_consolidado = pd.merge(df_consolidado, hoja, on=['HOLEID', 'From', 'To'], how='outer')
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_consolidado.to_excel(writer, index=False)
+                output.seek(0)
+                progreso.progress(n * patron)
+    else:
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df_consolidado.to_excel(writer, index=False)
+            output.seek(0)
+            progreso.progress(100)
+
+    return output
 archivo,opti = Conseguir_archivo()
 if type(archivo) == list:
     for i in range(0,len(archivo)):
@@ -191,7 +312,7 @@ if type(archivo) == list:
             else:
                 posicion = 0
 if archivo != [] and archivo != None:
-    seguir,funcion = Menu()
+    seguir,funcion,BD,lista = Menu(archivo)
     if seguir == True:
         if funcion == 1:
             st.session_state.accion = ""
@@ -217,7 +338,10 @@ if archivo != [] and archivo != None:
                 st.download_button("Descarga tus archivos aca",file_name="Optimizado.xlsx" ,data=archivo_optimizado,mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         elif funcion == 3:
             st.session_state.accion = "tramos"
-
+        else:
+            archivo_asignado = Asignacion_inicial(BD,lista,archivo)
+            if archivo_asignado!='':
+                st.download_button("Descarga tus archivos aca",file_name="archivo_asignado.xlsx",data=archivo_asignado,mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if st.session_state.accion == "tramos" and funcion==3 and opti == True:
         st.session_state.texto = st.text_input("dime la cantidad que seran los tramos:",value=st.session_state.texto)
         tramo = st.session_state.texto
